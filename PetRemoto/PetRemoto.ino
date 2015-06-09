@@ -1,100 +1,91 @@
-/* RestClient simple GET request
- *
- * by Chris Continanza (csquared)
+/**
+ *  This sketch waits for the button to be pressed. The motor starts in forward direction,
+ *  then every time the button is pressed the motor moves in the other direction.
  */
-
+#include <StepperMotor.h>
 #include <Ethernet.h>
 #include <SPI.h>
 #include "RestClient.h"
-#include <CustomStepper.h>
 
-/** Constantes de configurações  **/
+// 4 pins of the stepper motor board
+#define _PIN1 9
+#define _PIN2 8
+#define _PIN3 7
+#define _PIN4 6
+
+// Intderruption on PIN2, push-button connected to pull-up
+#define ITR_PIN1 1
+#define ITR_PIN2 2
+#define ITR_NB 0
+#define delayToCheck 10
+volatile boolean rotating = false;
 const char * serverURL = "192.168.25.11";
 const int serverPort = 50001;
 const char * serialVersion = "A1B2C3D4E5F6";
-const int delayToCheck = 10; /**em segundos **/
 int checkDelay = 0;
-boolean powerOnStatus = false;
 RestClient client = RestClient(serverURL, serverPort);
+String response;
+StepperMotor stepper(_PIN1, _PIN2, _PIN3, _PIN4);
+int oneDegree = 4048 / 360;
+bool powerOnStatus= false;
 
+/**
+ * This method is called on the interruption raised on the falling front of the PIN2
+ * The start flag is used to avoid rebound front. Interruptions are disabled inside the
+ * interrupt vector method.
+ * start is reset once it has been processed in the main loop()
+ */
+void buttonLess()
+{
+  if (!rotating) {
+    rotating = true;
+    stepper.move(-oneDegree * 10);
+    stepper.stop();
+    rotating = false;
 
-/** Pinos para o stepper **/
-const int pinStepper1 = 10;
-const int pinStepper2 = 11;
-const int pinStepper3 = 12;
-const int pinStepper4 = 13;
+  }
+}
+void buttonPlus()
+{
+  if (!rotating) {
+    rotating = true;
+    stepper.move(oneDegree * 10);
+    stepper.stop();
+    rotating = false;
 
-CustomStepper stepper(pinStepper1, pinStepper2, pinStepper3, pinStepper4, (byte[]) {
-  8, B1000, B1100, B0100, B0110, B0010, B0011, B0001, B1001
-}, 4075.7728395, 12, CW);
-
-/** Pinos para ajuste **/
-const int pinAdjustPlus = 8;
-const int pinAdjustLess = 9;
-
-boolean rotatedeg = false;
-
-
-
-
-
-//Setup
-void setup() {
-  Serial.begin(9600);
-  pinMode(pinAdjustPlus, INPUT);
-  pinMode(pinAdjustLess, INPUT);
-  // Connect via DHCP
-  Serial.println("connect to network");
-  client.dhcp();
-
-  Serial.println("Setup!");
+  }
 }
 
-String response;
-void loop() {
-  
-  if (!rotatedeg) {
-    Serial.println(rotatedeg);
-    Serial.println(stepper.isDone());
-    powerOn();
-    if (checkDelay > delayToCheck) {
+void setup()
+{
+  client.dhcp();
+  stepper = StepperMotor(_PIN1, _PIN2, _PIN3, _PIN4);
+  cli();
+  stepper.setPeriod(1);
+  pinMode(ITR_PIN1, INPUT_PULLUP);
+  pinMode(ITR_PIN2, INPUT_PULLUP);
+  attachInterrupt(0, buttonLess, FALLING);
+  attachInterrupt(1, buttonPlus, FALLING);
+  sei();
+}
+
+void loop()
+{
+    if(!powerOnStatus){
+      powerOn();
+    }
+    if(checkDelay > delayToCheck){
       checkFeedRequest();
     }
-    if (!checkAdjust()) {
-      checkDelay++;
-      delay(1000);
-    }
-  }
-  if (stepper.isDone()) {
-    rotatedeg = false;
-  }
-  stepper.run();
+    checkDelay++;
+    delay(1000);
 }
-boolean checkAdjust() {
-  int adjustPlus, adjustLess;
-  adjustPlus = digitalRead(pinAdjustPlus);
 
-  if (adjustPlus == HIGH) {
-    adjustRotation(+10);
-    return true;
-  }
-  adjustLess = digitalRead(pinAdjustLess);
-  if (adjustLess == HIGH) {
-    adjustRotation(-10);
-    return true;
-  } return false;
-}
 
 void adjustRotation(int degreesvalues) {
-  rotatedeg = true;
-  int value = degreesvalues;
-  if (degreesvalues < 0) {
-    value = -degreesvalues;
-    stepper.setDirection(CW);
-  } else {
-    stepper.setDirection(CCW);
-  }
-  stepper.rotateDegrees(value);
+  int value = degreesvalues * oneDegree;
+   stepper.move(value);
+   stepper.stop();
 }
 void checkFeedRequest() {
   checkDelay = 0;
